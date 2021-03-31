@@ -1,2 +1,3 @@
-# test
-Test repo
+# My first GitHub repo
+
+Hello world!
