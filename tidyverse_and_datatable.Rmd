@@ -1,0 +1,112 @@
+---
+title: "tidyverse and data.table"
+output: pdf_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+Tidyverse: dplyr and tidyr
+
+# dplyr
+
+# filter
+
+Filter (i.e. subset) rows based on their values.
+
+$~$
+
+```{r}
+starwars %>% 
+  filter( 
+    species == "Human", 
+    height >= 190
+    )
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  filter(grepl("Skywalker", name))
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  filter(is.na(height))
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  filter(!is.na(height))
+```
+
+# arrange
+
+Arrange (i.e. reorder) rows based on their values.
+
+$~$
+
+```{r}
+starwars %>% 
+  arrange(birth_year)
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  arrange(desc(birth_year))
+```
+
+
+# select
+
+Select (i.e. subset) columns by their names:
+
+$~$
+
+```{r}
+starwars %>% 
+  select(name:skin_color, species, -height)
+```
+
+$~$
+
+```{r}
+starwars %>%
+  select(alias=name, crib=homeworld, sex=gender)
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  select(name, contains("color"))
+```
+
+$~$
+
+The select(..., everything()) option is another useful shortcut if you only want to bring some variable(s) to the "front" of a data frame.
+
+```{r}
+starwars %>% 
+  select(species, homeworld, everything()) %>%
+  head(5)
+```
+
+
+
+
+
+
+
+
+
+
+
