@@ -1,0 +1,95 @@
+---
+title: "bigdata-lecture1"
+output: html_document
+---
+
+```{r}
+library(pacman)
+```
+
+
+```{r}
+p_load(haven, ggplot2, tidyverse, cowplot, ggrepel, ggalt, dplyr)
+```
+
+
+
+
+```{r}
+covid <-  read.csv("~/Desktop/UO/Spring2021/EC510bigdata/assignment-01-ggplot2-team-01/data/owid-covid-data.csv")
+```
+
+```{r}
+# Select a date from the dataset
+case <- covid %>% filter(date=="2020-11-01")
+
+
+```
+
+
+
+
+
+
+```{r}
+gg111 = ggplot(case,aes(x = gdp_per_capita, y = total_cases_per_million)) +
+  geom_point(aes(size = population_density, col= continent)) + 
+  scale_color_brewer(palette = "Paired") + 
+  ggtitle("Figure 1: World GDP and Cases of Covid-19") + 
+  xlab("GDP Per Capita") + 
+  ylab("Total Cases Per Million of People") + 
+  theme_bw(base_size=7)+
+  geom_smooth(method = "loess") +
+  facet_wrap(~ continent)
+
+gg111
+
+```
+
+```{r}
+country_df <- map_data('world') %>%
+  rename("location" = "region")
+
+#Take the mean across all years for each country:
+gapminder_means <- gapminder %>% 
+  group_by(country, continent) %>%
+  summarise(lifeExp = mean(lifeExp),
+            pop = mean(pop),
+            gdpPercap = mean(gdpPercap))
+
+plot_dat <- left_join(gapminder_means, country_df, by = "country")
+
+```
+
+
+```{r}
+ggplot(plot_dat) +
+  geom_polygon(aes(x = long, y = lat, fill = lifeExp, group = group)) +
+  scale_fill_viridis(option = "A") + 
+  coord_quickmap() +
+  theme_few()
+```
+
+```{r}
+ggggg1 = ggplot(case,aes(x = life_expectancy, y = total_deaths_per_million, fill=continent)) +
+  geom_path() + 
+  scale_fill_brewer(palette="Set1") + 
+  ggtitle("Figure 2: Life Expectancy and Total Death of Covid-19") + 
+  xlab("Life Expectancy") +
+  ylab("Total deaths Per Million of People")
+
+ggggg1
+```
+
+```{r}
+ggggg1 = ggplot(case,aes(x = continent, y = total_deaths_per_million, fill=continent)) +
+  geom_boxplot(outlier.shape =NA) + 
+  geom_jitter(aes(colour = continent),width = 0.3)+
+  scale_fill_brewer(palette="Dark2") + 
+  ggtitle("Figure 2: The Total Deaths of Covid-19 in Each Continent") + 
+  xlab("Continent") +
+  ylab("Total Deaths Per Million of People")
+
+ggggg1
+```
+
