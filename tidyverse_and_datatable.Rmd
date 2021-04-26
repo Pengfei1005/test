@@ -4,14 +4,15 @@ output: pdf_document
 ---
 
 ```{r}
-library(tidyverse)
+library(pacman)
+p_load(nycflights13, tidyverse)
 ```
 
 Tidyverse: dplyr and tidyr
 
 # dplyr
 
-# filter
+# 1. filter
 
 Filter (i.e. subset) rows based on their values.
 
@@ -46,7 +47,7 @@ starwars %>%
   filter(!is.na(height))
 ```
 
-# arrange
+# 2. arrange
 
 Arrange (i.e. reorder) rows based on their values.
 
@@ -65,7 +66,7 @@ starwars %>%
 ```
 
 
-# select
+# 3. select
 
 Select (i.e. subset) columns by their names:
 
@@ -99,6 +100,216 @@ starwars %>%
   select(species, homeworld, everything()) %>%
   head(5)
 ```
+
+# 4. mutate
+
+Create new columns.
+
+$~$
+
+```{r}
+starwars %>% 
+  select(name, birth_year) %>%
+  mutate(dog_years = birth_year * 7) %>%
+  mutate(comment = paste0(name, " is ", dog_years, " in dog years."))
+```
+
+$~$
+
+same as the last one. We can chain multiple mutates in a single call.
+
+```{r}
+starwars %>% 
+  select(name, birth_year) %>%
+  mutate(
+    dog_years = birth_year * 7, ## Separate with a comma
+    comment = paste0(name, " is ", dog_years, " in dog years.")
+    )
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  select(name, height) %>%
+  filter(name %in% c("Luke Skywalker", "Anakin Skywalker")) %>% 
+  mutate(tall1 = height > 180) %>%
+  mutate(tall2 = ifelse(height > 180, "Tall", "Short"))
+```
+
+$~$
+
+Lastly, combining mutate with the new across feature in dplyr 1.0.0+ allows you to easily work on a subset of variables. For example:
+
+```{r}
+starwars %>% 
+  select(name:eye_color) %>% 
+  mutate(across(where(is.character), toupper)) %>%
+  head(5)
+```
+# 5. summarise
+
+Collapse multiple rows into a single summary value.
+
+```{r}
+starwars %>% 
+  group_by(species, gender) %>% 
+  summarise(mean_height = mean(height, na.rm = TRUE))
+```
+
+$~$
+
+Note that including "na.rm = TRUE" (or, its alias "na.rm = T") is usually a good idea with summarise functions. Otherwise, any missing value will propogate to the summarised value too.
+
+```{r}
+starwars %>% 
+  summarise(mean_height = mean(height))
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  summarise(mean_height = mean(height, na.rm = TRUE))
+```
+
+$~$
+
+```{r}
+starwars %>% 
+  group_by(species) %>% 
+  summarise(across(where(is.numeric), mean, na.rm=T)) %>%
+  head(5)
+```
+# join
+
+```{r}
+left_join(flights, planes) %>%
+  select(year, month, day, dep_time, arr_time, carrier, flight, tailnum, type, model)
+```
+
+# tidyr
+
+# pivot_longer
+
+Pivot wide data into long format (i.e. "melt").
+
+```{r}
+stocks = data.frame( ## Could use "tibble" instead of "data.frame" if you prefer
+  time = as.Date('2009-01-01') + 0:1,
+  X = rnorm(2, 0, 1),
+  Y = rnorm(2, 0, 2),
+  Z = rnorm(2, 0, 4))
+stocks
+```
+
+$~$
+```{r}
+stocks %>% pivot_longer(-time, names_to="stock", values_to="price")
+```
+
+$~$
+
+```{r}
+tidy_stocks = 
+  stocks %>% 
+  pivot_longer(-time, names_to="stock", values_to="price")
+tidy_stocks
+```
+
+
+
+
+# pivot_wider
+
+Pivot long data into wide format (i.e. "cast").2
+
+```{r}
+tidy_stocks %>% pivot_wider(names_from=stock, values_from=price)
+
+```
+
+$~$
+
+```{r}
+tidy_stocks %>% pivot_wider(names_from=time, values_from=price)
+```
+
+# separate
+
+Separate (i.e. split) one column into multiple columns.
+
+```{r}
+economists = data.frame(name = c("Adam.Smith", "Paul.Samuelson", "Milton.Friedman"))
+economists
+```
+
+$~$
+
+```{r}
+economists %>% separate(name, c("first_name", "last_name"))
+```
+
+
+$~$
+
+```{r}
+jobs = data.frame(
+  name = c("Jack", "Jill"),
+  occupation = c("Homemaker", "Philosopher, Philanthropist, Troublemaker") 
+  ) 
+jobs
+```
+
+$~$
+
+```{r}
+jobs %>% separate_rows(occupation)
+```
+
+# unite 
+
+Unite (i.e. combine) multiple columns into one.
+
+```{r}
+gdp = data.frame(
+  yr = rep(2016, times = 4),
+  mnth = rep(1, times = 4),
+  dy = 1:4,
+  gdp = rnorm(4, mean = 100, sd = 2)
+  )
+gdp
+```
+$~$
+
+```{r}
+gdp %>% unite(date, c("yr", "mnth", "dy"), sep = "-")
+```
+$~$
+
+```{r}
+gdp_u = gdp %>% unite(date, c("yr", "mnth", "dy"), sep = "-") %>% as_tibble()
+gdp_u
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
