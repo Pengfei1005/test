@@ -1,0 +1,220 @@
+---
+title: "parallel_programming_lecture12"
+output: html_document
+---
+
+```{r}
+## Load and install the packages that we'll be using today
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tictoc, parallel, pbapply, future, future.apply, tidyverse, 
+               hrbrthemes, furrr, RhpcBLASctl, memoise, here)
+## My preferred ggplot2 plotting theme (optional)
+theme_set(hrbrthemes::theme_ipsum())
+
+## Set future::plan() resolution strategy
+plan(multisession)
+```
+
+# Example 1
+
+Our first motivating example is going to involve the same slow_square() function that we saw in the previous lecture:
+
+```{r}
+# library(tidyverse) ## Already loaded
+
+## Emulate slow function
+slow_square = 
+  function(x = 1) {
+    x_sq = x^2 
+    d = tibble(value = x, value_squared = x_sq)
+    Sys.sleep(2)
+    return(d)
+    }
+```
+
+
+
+
+Let’s iterate over this function using the standard lapply() method that we’re all familiar with by now. Note that this iteration will be executed in serial. I’ll use the tictoc package (link) to record timing.
+
+```{r}
+tic()
+serial_ex = lapply(1:12, slow_square) %>% bind_rows()
+toc()
+```
+
+As expected, the iteration took about 24 seconds to run because of the enforced break after every sequential iteration (i.e. Sys.sleep(2)). On the other hand, this means that we can easily speed things up by iterating in parallel.
+
+Before continuing, it’s worth pointing out that our abilty to go parallel hinges on the number of CPU cores available to us. The simplest way to obtain this information from R is with the parallel::detectCores() function:
+
+```{r}
+# future::availableCores() ## Another option
+detectCores()
+```
+
+Okay, back to our example. I’m going to implement the parallel iteration using the future.apply package (link) — more on this later. Note that the parameters of the problem are otherwise unchanged.
+
+```{r}
+# library(future.apply)  ## Already loaded
+# plan(multisession)     ## Already set above
+
+tic()
+future_ex = future_lapply(1:12, slow_square) %>% bind_rows()
+toc(log = TRUE)
+```
+
+Let’s confirm that the output is the same.
+
+```{r}
+all_equal(serial_ex, future_ex)
+```
+
+For those of you who prefer the purrr::map() family of functions for iteration and are feeling left out; don’t worry. The furrr package (link) has you covered. Once again, the syntax for these parallel functions will be very little changed from their serial versions. We simply have to tell R that we want to run things in parallel with plan(multisession) and then slightly amend our map call to future_map_dfr().3
+
+```{r}
+# library(furrr)      ## Already loaded
+# plan(multisession)  ## Already set above
+
+tic()
+furrr_ex = future_map_dfr(1:12, slow_square)
+toc()
+```
+
+# Example 2
+
+Our second motivating example will involve a more realistic and slightly more computationally-intensive case: Bootstrapping coefficient values for hypothesis testing.5 I’ll also spend a bit more time talking about the packages we’re using and what they’re doing.
+
+Start by creating a fake data set (our_data) and specifying a bootstrapping function (bootstrp()). This function will draw a sample of 10,000 observations from the the data set (with replacement), fit a regression, and then extract the coefficient on the x variable. Note that this coefficient should be around 2 according to our simulation setup.
+
+
+```{r}
+## Set seed (for reproducibility)
+set.seed(1234)
+# Set sample size
+n = 1e6
+
+## Generate a large data frame of fake data for a regression
+our_data = 
+  tibble(x = rnorm(n), e = rnorm(n)) %>%
+  mutate(y = 3 + 2*x + e)
+
+## Function that draws a sample of 10,000 observations, runs a regression and
+## extracts the coefficient value on the x variable (should be around 2).
+bootstrp = 
+  function(i) {
+  ## Sample the data
+  sample_data = sample_n(our_data, size = 1e4, replace = TRUE)
+  ## Run the regression on our sampled data and extract the extract the x
+  ## coefficient.
+  x_coef = lm(y ~ x, data = sample_data)$coef[2]
+  ## Return value
+  return(tibble(x_coef = x_coef))
+  }
+```
+
+
+### Serial implementation (for comparison)
+
+Let’s implement the function in serial first to get a benchmark for comparison.
+
+```{r}
+set.seed(123L) ## Optional to ensure that the results are the same
+
+## 10,000-iteration simulation
+tic()
+sim_serial = lapply(1:1e4, bootstrp) %>% bind_rows()
+toc(log = TRUE)
+
+```
+
+
+### Parallel implemention using the future ecosystem
+
+All of the parallel programming that we’ve been doing so far is built on top of Henrik Bengtsson’s amazing future package (link). A “future” is basically a very flexible way of evaluating code and output. Among other things, this allows you to switch effortlessly between evaluating code in serial or asynchronously (i.e. in parallel). You simply have to set your resolution plan — “sequential”, “multisession”, “cluster”, etc. — and let future handle the implementation for you.
+
+Here’s Henrik describing the core idea in more technical terms:
+
+**In programming, a future is an abstraction for a value that may be available at some point in the future. The state of a future can either be unresolved or resolved… Exactly how and when futures are resolved depends on what strategy is used to evaluate them. For instance, a future can be resolved using a sequential strategy, which means it is resolved in the current R session. Other strategies may be to resolve futures asynchronously, for instance, by evaluating expressions in parallel on the current machine or concurrently on a compute cluster.**
+
+You’ve probably also noted that keep referring to the “future ecosystem”. This is because future provides the framework for other packages to implement parallel versions of their functions. The two that I am focusing on today are
+
+1. the future.apply package (link), also by Henrik, and
+2. the furrr package (link), an implementation for purrr by Davis Vaughan.
+
+
+#### 1) future.apply
+
+Here’s the future.apply::future_lapply() parallel implementation. Note that I’m adding the future.seed=123L option to ensure that the results are the same. While not strictly necessary, it’s always a good idea to set a random seed with simulations for the sake of reproducibility.
+
+```{r}
+# library(future.apply)  ## Already loaded
+# plan(multisession)     ## Already set above
+
+## 10,000-iteration simulation
+tic()
+sim_future = future_lapply(1:1e4, bootstrp, future.seed=123L) %>% bind_rows()
+toc()
+```
+
+#### 2) furrr
+
+And here’s the furrr::future_map_dfr() implementation. Similar to the above, note that I’m only adding the .options=future_options(seed=123L) option to ensure that the output is exactly the same.
+
+```{r}
+# library(furrr)      ## Already loaded
+# plan(multisession)  ## Already set above
+
+## 10,000-iteration simulation
+tic()
+sim_furrr = future_map_dfr(1:1e4, bootstrp, .options = furrr_options(seed=123L))
+toc()
+```
+
+Results
+
+As expected, we dramatically cut down on total computation time by going parallel. Note, however, that the parallel improvements for this example didn’t scale linearly with the number of cores on my system (i.e. 12). The reason has to do with the overhead of running the parallel implementations — a topic that I cover in more depth toward the bottom of this document. Again, for the record, here is a screenshot showing that all of my cores were now being used during these parallel implementations.
+
+While it wasn’t exactly hard work, I think we deserve to see the results of our bootstrapping exercise in nice plot form. I’ll use the sim_furrr results data frame for this, although it doesn’t matter since they’re all the same thanks to our our random seed. As you can see, the estimated coefficient values are tightly clustered around our simulated mean of 2.
+
+```{r}
+sim_furrr %>%
+  ggplot(aes(x_coef)) +
+  geom_density(col=NA, fill="gray25", alpha=0.3) +
+  geom_vline(xintercept=2, col="red") +
+  labs(
+    title = "Bootstrapping example",
+    x="Coefficient values", y="Density",
+    caption = "Notes: Density based on 10,000 draws with sample size of 10,000 each."
+    )
+```
+
+#### Other parallel options
+
+Futures are not the only game in town for parallel programming in R. For example, I’m going to talk about the base R mclapply function further below. However, one particular option that I want to mention very briefly is the pbapply package (link). As we saw during the first programming lecture, this package provides a lightweight wrapper on the *apply functions that adds a progress bar. However, the package also adds a very convenient option for multicore implementation. You basically just have to add cl=CORES to the call. While it doesn’t rely on futures, pbapply also takes care of all the OS-specific overhead for you. See here for an interesting discussion on what’s happening behind the scenes.
+
+You will need to run this next chunk interactively to see the progress bar.
+
+
+```{r}
+set.seed(123) ## Optional to ensure results are exactly the same.
+
+# library(pbapply) ## Already loaded
+
+## 10,000-iteration simulation
+tic()
+sim_pblapply = pblapply(1:1e4, bootstrp, cl = parallel::detectCores()) %>% bind_rows()
+toc()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

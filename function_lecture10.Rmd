@@ -1,0 +1,489 @@
+---
+title: "functions_lecture10"
+output: html_document
+---
+
+```{r}
+library(pacman)
+p_load(pbapply, data.table, tidyverse)
+```
+
+# Syntax
+
+Regardless of where they come from, functions in R all adopt the same basic syntax:
+
+```r
+function_name(ARGUMENTS)
+```
+
+
+This is easy to do with the generic function() function.1 The syntax will again look familiar to you: The syntax will again look familiar to you:
+
+```r
+function(ARGUMENTS) {
+  OPERATIONS
+  return(VALUE)
+}
+```
+
+```r
+my_func = 
+  function(ARGUMENTS) {
+    OPERATIONS
+    return(VALUE)
+  }
+```
+
+For some short functions, you don’t need to invoke the curly brackets or assign an explicit return object (more on this below). In these cases, you can just write your function on a single line:
+
+```e
+my_short_func = function(ARGUMENTS) OPERATION
+```
+
+# Example
+
+1. 
+
+```{r}
+square =        ## Our function name
+  function(x) { ## The argument(s) that our function takes as an input
+    x^2         ## The operation(s) that our function performs
+  }
+```
+
+```{r}
+square(3)
+```
+
+```{r}
+square2 = function(x) x^2
+```
+
+```{r}
+square2(3)
+```
+
+
+**strongly favour the multi-line format**
+
+### Specifying return values
+
+**get into the habit of assigning the return object(s) explicitly. Let’s modify our function to do exactly that**
+
+```{r}
+square3 = 
+  function(x) { 
+    x_sq = x^2    ## Create an intermediary object (that will be returned)
+    return(x_sq)  ## The value(s) or object(s) that we want returned.
+  }
+
+```
+
+```{r}
+square3(5)
+```
+
+
+
+**Specifying an explicit return value is also helpful when we want to return more than one object**
+
+```{r}
+square4 = 
+  function(x) { ## The argument(s) that our function takes as an input
+    x_sq = x^2  ## The operation(s) that our function performs
+    return(list(value=x, value_squared=x_sq)) ## The list of object(s) that we want returned.
+  }
+
+```
+
+```{r}
+square4(5)
+```
+
+
+
+*Note that multiple return objects have to be combined in a list. I didn’t have to name these separate list elements — i.e. “value” and “value_squared”*
+
+**we can also specify one of these “array”-type objects within the function itself if that provides a more convenient form of output. For example, we could combine the input and output values into a data frame:**
+
+```{r}
+square5 = 
+  function(x) { 
+    x_sq = x^2 
+    df = tibble(value=x, value_squared=x_sq) ## Bundle up our input and output values into a convenient dataframe.
+    return(df)
+  }
+```
+
+
+```{r}
+square5(12)
+```
+
+
+
+
+### Specifying default argument values
+
+**Another thing worth noting about R functions is that you can assign default argument values. You have already encountered some examples of this in action.3 We can add a default option to our own function pretty easily。**
+
+```{r}
+square6 = 
+  function(x = 1) { ## Setting the default argument value 
+    x_sq = x^2 
+    df = tibble(value=x, value_squared=x_sq)
+    return(df)
+  }
+
+```
+```{r}
+square6()
+```
+
+```{r}
+square6(2)
+```
+
+# Control flow
+
+**That is, we want to control the order (or “flow”) of statements and operations that our functions evaluate.**
+
+### if and ifelse
+
+```{r}
+square7 = 
+  function(x = NULL) {  ## Default value of NULL
+    if (is.null(x)) x=1 ## Re-assign default to 1
+    x_sq = x^2 
+    df = tibble(value=x, value_squared=x_sq)
+    return(df)
+  }
+square7()
+```
+
+```{r}
+square8 = 
+  function(x = NULL) {
+    if (is.null(x)) { ## Start multiline if statement with `{`
+      x=1
+      message("No input value provided. Using default value of 1.") ## Message to users
+      } ## Close multiline if statement with `}`
+    x_sq = x^2 
+    df = tibble(value=x, value_squared=x_sq)
+    return(df)
+  }
+square8()
+```
+
+```r
+ifelse(CONDITION, DO IF TRUE, DO IF FALSE)
+```
+
+```{r}
+eval_square =
+  function(x) {
+    if (square8(x)$value_squared == x*x) { ## condition
+      ## What to do if the condition is TRUE 
+      message("Nailed it.")
+    } else {
+      ## What to do if the condition is FALSE
+      message("Dude, your function sucks.")
+    }
+  }
+
+eval_square(64)
+```
+
+### Aside: ifelse gotchas and alternatives
+
+The base R ifelse() function normally works great and I use it all the time. However, there are a couple of “gotcha” cases that you should be aware of. Consider the following (silly) function which is designed to return either today’s date, or the day before.
+
+```{r}
+today = function(...) ifelse(..., Sys.Date(), Sys.Date()-1)
+today(TRUE)
+```
+
+You are no doubt surprised to find that our function returns a number instead of a date. This is because ifelse() automatically converts date objects to numeric as a way to get around some other type conversion strictures. Confirm for yourself by converting it back the other way around with: as.Date(today(TRUE), origin = "1970-01-01").
+
+```{r}
+# tidyverse
+today2 = function(...) dplyr::if_else(..., Sys.Date(), Sys.Date()-1)
+today2(TRUE)
+```
+
+```{r}
+# data.table
+today3 = function(...) data.table::fifelse(..., Sys.Date(), Sys.Date()-1)
+today3(TRUE)
+```
+
+
+### case when (nested ifelse)
+
+As you may have guessed, it’s certainly possible to write nested ifelse() statements. For example,
+
+```r
+ifelse(CONDITION1, DO IF TRUE, ifelse(CONDITION2, DO IF TRUE, ifelse(...)))
+```
+
+```{r}
+x = 1:10
+## dplyr::case_when()
+case_when(
+  x <= 3 ~ "small",
+  x <= 7 ~ "medium",
+  TRUE ~ "big" ## Default value. Could also write `x > 7 ~ "big"` here.
+  )
+```
+
+
+```{r}
+## data.table::fcase()
+fcase(
+    x <= 3, "small",
+    x <= 7, "medium",
+    default = "big" ## Default value. Could also write `x > 7, "big"` here.
+    )
+```
+
+Not to belabour the point, but you can easily use these case when implementations inside of data frames/tables too.
+
+```{r}
+## dplyr::case_when()
+tibble(x = 1:10) %>%
+    mutate(grp = case_when(x <= 3 ~ "small",
+                           x <= 7 ~ "medium",
+                           TRUE ~ "big"))
+```
+
+```{r}
+## data.table::fcase()
+data.table(x = 1:10)[, grp := fcase(x <= 3, "small",
+                                    x <= 7, "medium",
+                                    default = "big")][]
+```
+
+# Iteration
+
+### Vectorisation
+
+```{r}
+square8(1:5)
+```
+
+
+```{r}
+square8(c(2, 4))
+```
+
+### For loops
+
+```{r}
+for(i in 1:10) print(LETTERS[i])
+```
+
+
+Note that in cases where we want to “grow” an object via a for loop, we first have to create an empty (or NULL) object.
+
+```{r}
+kelvin = 300:305
+fahrenheit = NULL
+# fahrenheit = vector("double", length(kelvin)) ## Better than the above. Why?
+for(k in 1:length(kelvin)) {
+  fahrenheit[k] = kelvin[k] * 9/5 - 459.67
+}
+fahrenheit
+```
+
+### Functional programming
+
+As a corollary, for loops also pollute our global environment with the variables that are used as counting variables. Take a look at your “Environment” pane in RStudio. What do you see? In addition to the kelvin and fahrenheit vectors that we created, we also see two variables i and k (equal to the last value of their respective loops). Creating these auxiliary variables is almost certainly not an intended outcome when your write a for-loop.8 More worringly, they can cause programming errors when we inadvertently refer to a similarly-named variable elsewhere in our script. So we best remove them manually as soon as we’re finished with a loop.
+
+
+
+```{r}
+rm(i,k)
+```
+
+
+FP allows to avoid the explicit use of loop constructs and its associated downsides. In practice, there are two ways to implement FP in R:
+
+#### 1) lapply and co.
+
+```{r}
+# for(i in 1:10) print(LETTERS[i]) ## Our original for loop (for comparison)
+lapply(1:10, function(i) LETTERS[i])
+```
+
+
+```{r}
+lapply(1:10, function(i) {
+  df = tibble(num = i, let = LETTERS[i])
+  return(df)
+  }) %>%
+  bind_rows()
+```
+
+Taking a step back, while the default list-return behaviour may not sound ideal at first, I’ve found that I use lapply() more frequently than any of the other apply family members. A key reason is that my functions normally return multiple objects of different type (which makes lists the only sensible format)… or a single data frame (which is where dplyr::bind_rows() or data.table::rbindlist() come in).
+
+Aside: Quick look at sapply()
+Another option that would work well in the this particular case is sapply(), which stands for “simplify apply”. This is essentially a wrapper around lapply that tries to return simplified output that matches the input type. If you feed the function a vector, it will try to return a vector, etc.
+
+
+```{r}
+sapply(1:10, function(i) LETTERS[i]) 
+```
+
+
+```{r}
+# library(pbapply) ## Already loaded
+
+pblapply(1:10, function(i) {
+  df = tibble(num = i, let = LETTERS[i])
+  Sys.sleep(1)
+  return(df)
+  }) %>%
+  bind_rows()
+```
+
+#### 2) purrr package
+
+
+The tidyverse offers its own enhanced implementation of the base *apply() functions through the purrr package.10 The key function to remember here is purrr::map(). And, indeed, the syntax and output of this command are effectively identical to base::lapply():
+
+
+```{r}
+map(1:10, function(i) { ## only need to swap `lapply` for `map`
+  df = tibble(num = i, let = LETTERS[i])
+  return(df)
+  })
+```
+
+However, one additional thing I wanted to flag for today is that map() also comes with its own variants, which are useful for returning objects of a desired type. For example, we can use purrr::map_df() to return a data frame.
+
+
+```{r}
+map_df(1:10, function(i) { ## don't need bind_rows with `map_df`
+  df = tibble(num = i, let = LETTERS[i])
+  return(df)
+  })
+```
+
+
+### Create and iterate over named functions
+
+As you may have guessed already, we can split the function and the iteration (and binding) into separate steps. This is generally a good idea, since you typically create (named) functions with the goal of reusing them.
+
+```{r}
+## Create a named function
+num_to_alpha = 
+  function(i) {
+  df = tibble(num = i, let = LETTERS[i])
+  return(df)
+  }
+```
+
+```{r}
+lapply(1:10, num_to_alpha) %>% bind_rows()
+```
+
+Or, say
+
+```{r}
+map_df(c(1, 5, 26, 3), num_to_alpha)
+```
+
+### Iterate over multiple inputs
+
+Thus far, we have only been working with functions that take a single input when iterating. For example, we feed them a single vector (even though that vector contains many elements that drive the iteration process). But what if we want to iterate over multiple inputs? Consider the following function, which takes two separate variables x and y as inputs, combines them in a data frame, and then uses them to create a third variable z.
+
+
+```{r}
+## Create a named function
+multi_func = 
+  function(x, y) {
+  df = 
+    tibble(x = x, y = y) %>%
+    mutate(z = (x + y)/sqrt(x))
+  return(df)
+  }
+```
+
+```{r}
+multi_func(1, 6)
+```
+
+Great, it works. Now let’s imagine that we want to iterate over various levels of both x and y. There are two basics approaches that we can follow to achieve this:
+
+Use base::mapply() or purrr::pmap().
+Use a data frame of input combinations.
+
+
+#### 1) Use mapply() or pmap()
+
+First, base::mapply():
+
+```{r}
+## Note that the inputs are now moved to the *end* of the call. 
+## Also, mapply() is based on sapply(), so we also have to tell it not to 
+## simplify if we want to keep the list structure.
+mapply(
+  multi_func,
+  x = 1:5,         ## Our "x" vector input
+  y = 6:10,        ## Our "y" vector input
+  SIMPLIFY = FALSE ## Tell it not to simplify to keep the list structure
+  ) %>%
+  bind_rows()
+```
+
+
+Second, purrr::pmap():
+
+```{r}
+## Note that the inputs are combined in a list.
+pmap_df(list(x=1:5, y=6:10), multi_func)
+```
+
+#### 2) Using a data frame of input combinations
+
+```{r}
+parent_func =
+  ## Main function: Takes a single data frame as an input
+  function(input_df) {
+    df =
+      ## Nested iteration function
+      map_df(
+      1:nrow(input_df), ## i.e. Iterate (map) over each row of the input data frame
+      function(n) {
+        ## Extract the `x` and `y` values from row "n" of the data frame
+        x = input_df$x[n]
+        y = input_df$y[n]
+        ## Use the extracted values
+        df = multi_func(x, y)
+        return(df)
+      })
+    return(df)
+    }
+```
+
+
+```{r}
+## Case 1: Iterate over x=1:5 and y=6:10
+input_df1 = tibble(x=1:5, y=6:10)
+parent_func(input_df1)
+```
+
+```{r}
+## Case 2: Iterate over *all possible combinations* of x=1:5 and y=6:10
+input_df2 = expand.grid(x=1:5, y=6:10)
+# input_df2 = expand(input_df1, x, y) ## Also works
+parent_func(input_df2)
+```
+
+
+
+
+
+
+
+
