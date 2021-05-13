@@ -1,0 +1,277 @@
+---
+title: "spatial"
+output: pdf_document
+---
+
+```{r}
+library(pacman)
+p_load(sf, tidyverse, data.table, hrbrthemes, lwgeom, rnaturalearth, maps, mapdata, spData, tigris, tidycensus, leaflet, mapview, tmap, tmaptools)
+```
+
+### Census API key
+
+Finally, we’ll be accessing some data from the US Census Bureau through the tidycensus package. This will require a Census API key, which you can request here. Once that’s done, you can set it using the tidycensus::census_api_key() function. I recommend using the “install = TRUE” option to save your key for future usage. See the function’s help file for more information.
+
+```{r}
+tidycensus::census_api_key("027a0bbbc2976761f5a580477f8e5a3e975462e8", install = TRUE)
+```
+
+```{r}
+## Open your .Renviron file. Here we can add API keys that persist across R sessions.
+usethis::edit_r_environ() 
+```
+
+
+```{r}
+## Optional: Refresh your .Renviron file.  
+readRenviron("~/.Renviron") ## Only necessary if you are reading in a newly added R environment variable
+```
+
+# Introduction: CRS and map projections
+
+If you’re reading this after the fact, I recommend these two helpful resources. The very short version is that spatial data, like all coordinate-based systems, only make sense relative to some fixed point. That fixed point is what the Coordinate Reference Systems, or CRS, is trying to set. In R, we can define the CRS in one of two ways:
+
+1. EPSG code (e.g. 3857), or
+
+2. PROJ string (e.g. "+proj=merc").
+
+We’ll see examples of both implementations in in this lecture. For the moment, however, just know that they are equally valid ways of specifying CRS in R (albeit with with different strengths and weaknesses). You can search for many different CRS definitions here.
+
+
+**Aside: There are some important updates happening in the world of CRS and geospatial software, which will percolate through to the R spatial ecosystem. Thanks to the hard work of various R package developers, these behind-the-scenes changes are unlikely to affect the way that you interact with spatial data in R. But they are worth understanding if you plan to make geospatial work a core component of your research. More here.**
+
+Similarly, whenever we try to plot (some part of) the earth on a map, we’re effectively trying to project a 3-D object onto a 2-D surface. This will necessarily create some kind of distortion. Different types of map projections limit distortions for some parts of the world at the expense of others. For example, consider how badly the standard (but infamous) Mercator projection distorts the high latitudes in a global map (source):
+
+### Simple Features and the sf package
+
+R has long provided excellent support for spatial analysis and plotting (primarily through the sp, rgdal, rgeos, and raster packages). However, until recently, the complex structure of spatial data necessitated a set of equally complex spatial objects in R. I won’t go into details, but a spatial object (say, a SpatialPolygonsDataFrame) was typically comprised of several “layers” — much like a list — with each layer containing a variety of “slots”. While this approach did (and still does) work perfectly well, the convoluted structure provided some barriers to entry for newcomers. It also made it very difficult to incorporate spatial data into the tidyverse ecosystem that we’re familiar with. Luckily, all this has changed thanks to the advent of the sf package (link).
+
+The “sf” stands for simple features, which is a simple (ahem) standard for representing the spatial geometries of real-world objects on a computer.1 These objects — i.e. “features” — could include a tree, a building, a country’s border, or the entire globe. The point is that they are characterised by a common set of rules, defining everything from how they are stored on our computer to which geometrical operations can be applied them. Of greater importance for our purposes, however, is the fact that sf represents these features in R as data frames. This means that all of our data wrangling skills from previous lectures can be applied to spatial data; say nothing of the specialized spatial functions that we’ll cover next.
+
+
+### Reading in spatial data
+
+Somewhat confusingly, most of the functions in the sf package start with the prefix st_. This stands for spatial and temporal and a basic command of this package is easy enough once you remember that you’re probably looking for st_SOMETHING().2
+
+Let’s demonstrate by reading in the North Carolina counties shapefile that comes bundled with sf. As you might have guessed, we’re going to use the st_read() command and sf package will handle all the heavy lifting behind the scenes.
+
+```{r}
+# library(sf) ## Already loaded
+
+## Location of our shapefile (here: bundled together with the sf package)
+file_loc = system.file("shape/nc.shp", package="sf")
+
+## Read the shapefile into R
+nc = st_read(file_loc, quiet = TRUE)
+```
+
+### Simple Features as data frames
+
+Let’s print out the nc object that we just created and take a look at its structure.
+
+```{r}
+nc
+```
+
+
+Now we can see the explicit data frame structure that was I talking about earlier. The object has the familiar tibble-style output that we’re used to (e.g. it only prints the first 10 rows of the data). However, it also has some additional information in the header, like a description of the geometry type (“MULTIPOLYGON”) and CRS (e.g. EPSG ID 4267). One thing I want to note in particular is the geometry column right at the end of the data frame. This geometry column is how sf package achieves much of its magic: It stores the geometries of each row element in its own list column.3 Since all we really care about are the key feature attributes — county name, FIPS code, population size, etc. — we can focus on those instead of getting bogged down by hundreds (or thousands or even millions) of coordinate points. In turn, this all means that our favourite tidyverse operations and syntax (including the pipe operator %>%) can be applied to spatial data. Let’s review some examples, starting with plotting.
+
+### Plotting and projection with ggplot2
+
+Plotting sf objects is incredibly easy thanks to the package’s integration with both base R plot() and ggplot2. I’m going to focus on the latter here, but feel free to experiment.4 The key geom to remember is geom_sf(). For example:
+
+```{r}
+# library(tidyverse) ## Already loaded
+
+nc_plot = 
+  ggplot(nc) +
+  geom_sf(aes(fill = AREA), alpha=0.8, col="white") +
+  scale_fill_viridis_c(name = "Area") +
+  ggtitle("Counties of North Carolina")
+
+nc_plot
+```
+
+To reproject an sf object to a different CRS, we can use sf::st_transform().
+
+```{r}
+nc %>%
+  st_transform(crs = "+proj=moll") %>% ## Reprojecting to a Mollweide CRS
+  head(2) ## Saving vertical space
+```
+
+
+Or, we can specify a common projection directly in the ggplot call using coord_sf(). This is often the most convenient approach when you are combining multiple sf data frames in the same plot.
+
+```{r}
+nc_plot +
+  coord_sf(crs = "+proj=moll") +
+  labs(subtitle = "Mollweide projection") 
+```
+
+Note that we used a PROJ string to define the CRS reprojection above. But we could easily use an EPSG code instead. For example, here’s the NC state plane projection.
+
+```{r}
+nc_plot +
+  coord_sf(crs = 32119) +
+  labs(subtitle = "NC state plane") 
+```
+
+### Data wrangling with dplyr and tidyr
+
+As I keep saying, the tidyverse approach to data wrangling carries over very smoothly to sf objects. For example, the standard dplyr verbs like filter(), mutate() and select() all work:
+
+```{r}
+nc %>%
+  filter(NAME %in% c("Camden", "Durham", "Northampton")) %>%
+  mutate(AREA_1000 = AREA*1000) %>%
+  select(NAME, contains("AREA"), everything())
+```
+
+You can also perform group_by() and summarise() operations as per normal (see here for a nice example). Furthermore, the dplyr family of join functions also work, which can be especially handy when combining different datasets by (say) FIPS code or some other attribute. However, this presumes that only one of the objects has a specialized geometry column. In other words, it works when you are joining an sf object with a normal data frame. In cases where you want to join two sf objects based on their geometries, there’s a specialized st_join() function. I provide an example of this latter operation in the section on geometric operations below.
+
+And, just to show that we’ve got the bases covered, you can also implement your favourite tidyr verbs. For example, we can tidyr::gather() the data to long format, which is useful for facetted plotting.5 Here I demonstrate using the “BIR74” and “BIR79” columns (i.e. the number of births in each county in 1974 and 1979, respectively).
+
+
+```{r}
+nc %>% 
+  select(county = NAME, BIR74, BIR79, -geometry) %>% 
+  gather(year, births, BIR74, BIR79) %>% 
+  mutate(year = gsub("BIR", "19", year)) %>%
+  ggplot() +
+  geom_sf(aes(fill = births), alpha=0.8, col="white") +
+  scale_fill_viridis_c(name = "Births", labels = scales::comma) +
+  facet_wrap(~year, ncol = 1) +
+  labs(title = "Births by North Carolina county") 
+```
+
+### Specialized geometric operations
+
+Alongside all the tidyverse functionality, the sf package comes with a full suite of geometrical operations. You should take a look at at the third sf vignette or the Geocomputation with R book to get a complete overview. However, here are a few examples to get you started:
+
+#### Unary operations
+
+So-called unary operations are applied to a single object. For instance, you can “melt” sub-elements of an sf object (e.g. counties) into larger elements (e.g. states) using sf::st_union():
+
+```{r}
+nc %>% 
+  st_union() %>% 
+  ggplot() +
+  geom_sf(fill=NA, col="black") +
+  labs(title = "Outline of North Carolina") 
+```
+
+Or, you can get the st_area(), st_centroid(), st_boundary(), st_buffer(), etc. of an object using the appropriate command. For example:
+
+```{r}
+nc %>% st_area() %>% head(5) ## Only show the area of the first five counties to save space.
+
+```
+
+```{r}
+nc_centroid = st_centroid(nc)
+
+ggplot(nc) +
+  geom_sf(fill = "black", alpha = 0.8, col = "white") +
+  geom_sf(data = nc_centroid, col = "red") + ## Notice how easy it is to combine different sf objects
+  labs(
+    title = "Counties of North Carolina",
+    subtitle = "Centroids in red"
+    )
+```
+
+#### Binary operations
+
+Another set of so-called binary operations can be applied to multiple objects. So, we can get things like the distance between two spatial objects using sf::st_distance(). In the below example, I’m going to get the distance from Ashe county to Brunswich county, as well as itself. The latter is just a silly addition to show that we can easily make multiple pairwise comparisons, even when the distance from one element to another is zero.
+
+
+```{r}
+ashe_brunswick = nc %>% filter(NAME %in% c("Ashe", "Brunswick"))
+brunswick = nc %>% filter(NAME %in% c("Brunswick"))
+
+## Use "by_element = TRUE" to give a vector instead of the default pairwise matrix
+ab_dist = st_distance(ashe_brunswick, brunswick, by_element = TRUE)
+# Units: [m]
+# [1] 347930.7      0.0
+
+## We can use the `units` package (already installed as sf dependency) to convert to kilometres 
+ab_dist = ab_dist %>% units::set_units(km) %>% round()
+# Units: [km]
+# [1] 348   0
+
+ggplot(nc) +
+  geom_sf(fill = "black", alpha = 0.8, col = "white") +
+  geom_sf(data = nc %>% filter(NAME %in% c("Ashe", "Brunswick")), aes(fill = NAME), col = "white") +  
+  labs(
+    title = "Calculating distances",
+    subtitle = paste0("The distance between Ashe and Brunswick is ", ab_dist[1], " km")
+    ) +
+  theme(legend.title = element_blank())
+```
+
+#### Binary logical operations
+
+A sub-genre of binary geometric operations falls into the category of logic rules — typically characterising the way that geometries relate in space. (Do they overlap, etc.)
+
+For example, we can calculate the intersection of different spatial objects using sf::st_intersection(). For this next example, I’m going to use two new spatial objects: 1) A regional map of France from the maps package and 2) part of the Seine river network (including its Marne and Yonne tributaries) from the spData package. Don’t worry too much about the process used for loading these datasets; I’ll cover that in more depth shortly. For the moment, just focus on the idea that we want to see which adminstrative regions are intersected by the river network. Start by plotting all of the data to get a visual sense of the overlap:
+
+
+```{r}
+## Get the data
+france = st_as_sf(map('france', plot = FALSE, fill = TRUE))
+data("seine", package = "spData")
+
+## Make sure they have the same projection
+seine = st_transform(seine, crs = st_crs(france))
+
+ggplot() + 
+  geom_sf(data = france, alpha = 0.8, fill = "black", col = "gray50") + 
+  geom_sf(data = seine, col = "#05E9FF", lwd = 1) + 
+  labs(
+    title = "Administrative regions of France",
+    subtitle = "Also showing the Seine, Marne and Yonne rivers"
+    )
+```
+
+Now let’s limit it to the intersected regions:
+
+```{r}
+seine = st_transform(seine, crs = st_crs(france))
+france_intersected = st_intersection(france, seine)
+france_intersected
+```
+
+Note that st_intersection() only preserves exact points of overlap. As in, this is the exact path that the rivers follow within these regions. We can see this more explicitly in map form:
+
+```{r}
+france_intersected %>%
+  ggplot() + 
+  geom_sf(alpha = 0.8, aes(fill = ID, col = ID)) + 
+  labs(
+    title = "Seine, Marne and Yonne rivers",
+    caption = "Colours depict French administrative regions"
+    ) +
+  theme(legend.title = element_blank())
+```
+
+If we instead wanted to plot the subsample of intersected provinces (i.e. keeping their full geometries), we have a couple options. We could filter the france object by matching its region IDs with the france_intersected object. However, a more direct option is to use the sf::st_join() function which matches objects based on overlapping (i.e. intersecting) geometries:
+
+```{r}
+st_join(france, seine) %>% 
+  filter(!is.na(name)) %>% ## Get rid of regions with no overlap
+  distinct(ID, .keep_all = T) %>% ## Some regions are duplicated b/c two branches of the river network flow through them 
+  ggplot() + 
+  geom_sf(alpha = 0.8, fill = "black", col = "gray50") + 
+  geom_sf(data = seine, col = "#05E9FF", lwd = 1) + 
+  labs(title = "Intersected regions only") 
+```
+
+
+
+
+
+
+
+
+
+
