@@ -1,0 +1,444 @@
+---
+title: "database"
+output: pdf_document
+---
+
+```{r}
+## Load/install packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, DBI, duckdb, bigrquery, hrbrthemes, nycflights13, glue)
+## My preferred ggplot2 theme (optional)
+theme_set(hrbrthemes::theme_ipsum())
+```
+
+
+```{r}
+# library(DBI) ## Already loaded
+
+con = dbConnect(duckdb::duckdb(), path = ":memory:")
+```
+
+
+```{r}
+# library(dplyr)        ## Already loaded
+# library(nycflights13) ## Already loaded
+
+copy_to(
+  dest = con, 
+  df = nycflights13::flights, 
+  name = "flights",
+  temporary = FALSE, 
+  indexes = list(
+    c("year", "month", "day"), 
+    "carrier", 
+    "tailnum",
+    "dest"
+    )
+  )
+```
+
+
+```{r}
+## List tables in our DuckDB database connection (optional)
+# dbListTables(con)
+
+## Reference the table from R
+flights_db = tbl(con, "flights")
+flights_db
+```
+```{r}
+## Select some columns
+flights_db %>% select(year:day, dep_delay, arr_delay)
+```
+
+
+```{r}
+## Filter according to some condition
+flights_db %>% filter(dep_delay > 240) 
+```
+
+
+```{r}
+## Get the mean delay by destination (group and then summarise)
+flights_db %>%
+  group_by(dest) %>%
+  summarise(mean_dep_delay = mean(dep_delay))
+```
+
+
+```{r}
+tailnum_delay_db = 
+  flights_db %>% 
+  group_by(tailnum) %>%
+  summarise(
+    mean_dep_delay = mean(dep_delay),
+    mean_arr_delay = mean(arr_delay),
+    n = n()
+    ) %>%
+  filter(n > 100) %>% 
+  arrange(desc(mean_arr_delay))
+```
+
+
+```{r}
+tailnum_delay_db
+```
+
+
+```{r}
+tailnum_delay = 
+  tailnum_delay_db %>% 
+  collect()
+tailnum_delay
+```
+
+```{r}
+tailnum_delay %>%
+  ggplot(aes(x=mean_dep_delay, y=mean_arr_delay, size=n)) +
+  geom_point(alpha=0.3) +
+  geom_abline(intercept = 0, slope = 1, col="orange") +
+  coord_fixed()
+```
+
+
+```{r}
+## Copy over the "planes" dataset to the same "con" DuckDB connection.
+copy_to(
+    dest = con, 
+    df = nycflights13::planes, 
+    name = "planes",
+    temporary = FALSE, 
+    indexes = "tailnum"
+    )
+
+## List tables in our "con" database connection (i.e. now "flights" and "planes")
+dbListTables(con)
+
+```
+
+```{r}
+## Reference from dplyr
+planes_db = tbl(con, 'planes')
+
+## Run the equivalent left join that we saw back in the tidyverse lecture
+left_join(
+    flights_db,
+    planes_db %>% rename(year_built = year),
+    by = "tailnum" ## Important: Be specific about the joining column
+) %>%
+    select(year, month, day, dep_time, arr_time, carrier, flight, tailnum,
+           year_built, type, model) 
+```
+
+
+```{r}
+tailnum_delay_db %>% show_query()
+```
+
+
+```{r}
+## Show the equivalent SQL query for these dplyr commands
+flights_db %>% 
+  select(month, day, dep_time, sched_dep_time, dep_delay) %>% 
+  filter(dep_delay > 240) %>% 
+  head(5) %>% 
+  show_query()
+```
+
+
+```{sql, connection=con}
+SELECT month, day, dep_time, sched_dep_time, dep_delay, origin, dest
+FROM flights
+WHERE dep_delay > 240
+LIMIT 5
+```
+
+
+
+```{r}
+## Run the query using SQL directly on the connection.
+dbGetQuery(con, "SELECT * FROM flights WHERE dep_delay > 240.0 LIMIT 5")
+
+```
+
+
+```{r}
+# library(glue) ## Already loaded
+
+## Some local R variables
+tbl = "flights"
+d_var = "dep_delay"
+d_thresh = 240
+
+## The "glued" SQL query string
+sql_query =
+  glue_sql("
+  SELECT *
+  FROM {`tbl`}
+  WHERE ({`d_var`} > {d_thresh})
+  LIMIT 5
+  ",
+  .con = con
+  )
+
+## Run the query
+dbGetQuery(con, sql_query)
+```
+
+
+```{r}
+flights_subquery = 
+  glue_sql(
+    "
+    SELECT * 
+    FROM flights
+    ", 
+    .con = con)
+```
+
+
+```{r}
+planes_subquery = 
+  glue_sql(
+    "
+    SELECT tailnum, year AS year_built, model 
+    FROM planes
+    ", 
+    .con = con
+    )
+```
+
+
+```{r}
+join_string =
+  glue_sql(
+    "
+    SELECT year, dep_time, 
+      a.tailnum AS tailnum,
+      year_built, model
+    FROM ({flights_subquery}) AS a
+    LEFT JOIN ({planes_subquery}) AS b
+    ON a.tailnum = b.tailnum
+    LIMIT 4
+    ",
+    .con = con
+  )
+
+dbGetQuery(con, join_string)
+```
+
+
+```{r}
+cte_join_string =
+  glue_sql(
+    "
+    WITH 
+    a AS ({flights_subquery}),
+    b AS ({planes_subquery})
+    SELECT year, dep_time, 
+      a.tailnum AS tailnum,
+      year_built, model
+    FROM a
+    LEFT JOIN b
+    ON a.tailnum = b.tailnum
+    LIMIT 4
+    ",
+    .con = con
+  )
+
+dbGetQuery(con, cte_join_string)
+```
+
+
+```{r}
+dbDisconnect(con)
+```
+
+
+# Bigrqery
+
+```{r}
+# library(bigrquery) ## Already loaded
+
+billing_id = Sys.getenv("GCE_DEFAULT_PROJECT_ID") ## Replace with your project ID if this doesn't work
+```
+
+
+```{r}
+# library(DBI) ## Already loaded
+# library(dplyr) ## Already loaded
+
+bq_con =
+  dbConnect(
+    bigrquery::bigquery(),
+    project = "publicdata",
+    dataset = "samples",
+    billing = billing_id
+    )
+```
+
+
+```{r}
+dbListTables(bq_con)
+```
+
+```{r}
+natality = tbl(bq_con, "natality")
+```
+
+
+```{r}
+bw =
+  natality %>%
+  filter(!is.na(state)) %>% ## optional to remove some outliers
+  group_by(year) %>%
+  summarise(weight_pounds = mean(weight_pounds, na.rm=TRUE)) %>%
+  collect()
+
+```
+
+
+```{r}
+bw %>%
+  ggplot(aes(year, weight_pounds)) +
+  geom_line()
+```
+
+
+```{r}
+## Get mean yearly birth weight by state and gender
+bw_st =
+  natality %>%
+  filter(!is.na(state)) %>%
+  group_by(year, state, is_male) %>%
+  summarise(weight_pounds = mean(weight_pounds, na.rm=TRUE)) %>%
+  mutate(gender = ifelse(is_male, "Male", "Female")) %>%
+  collect()
+```
+
+```{r}
+## Select arbitrary states to highlight
+states = c("CA","DC","OR","TX","VT")
+## Rearranging the data will help with the legend ordering
+bw_st = bw_st %>% arrange(gender, year)
+
+## Plot it
+bw_st %>%
+  ggplot(aes(year, weight_pounds, group=state)) +
+  geom_line(col="grey75", lwd = 0.25) +
+  geom_line(
+    data = bw_st %>% filter(state %in% states),
+    aes(col=fct_reorder2(state, year, weight_pounds)),
+    lwd=0.75
+    ) +
+  facet_wrap(~gender) +
+  scale_color_brewer(palette = "Set1", name=element_blank()) +
+  labs(
+    title = "Mean birth weight, by US state over time",
+    subtitle = "Selected states highlighted",
+    x = NULL, y = "Pounds",
+    caption = "Data sourced from Google BigQuery"
+    ) +
+  theme_ipsum(grid=FALSE)
+
+```
+
+```{r}
+dbDisconnect(bq_con)
+```
+
+
+
+# GFW
+
+```{r}
+gfw_con =
+  dbConnect(
+    bigrquery::bigquery(),
+    project = "global-fishing-watch",
+    dataset = "global_footprint_of_fisheries",
+    billing = billing_id
+    )
+```
+
+
+```{r}
+dbListTables(gfw_con)
+```
+
+
+```{r}
+effort = tbl(gfw_con, "fishing_effort")
+effort
+```
+
+
+```{r}
+effort %>%
+  group_by(flag) %>%
+  summarise(total_fishing_hours = sum(fishing_hours, na.rm=T)) %>%
+  arrange(desc(total_fishing_hours)) %>%
+  collect()
+```
+
+
+```{r}
+effort %>%
+  ## Here comes the filtering on partition time
+  filter(
+    `_PARTITIONTIME` >= "2016-01-01 00:00:00",
+    `_PARTITIONTIME` <= "2016-12-31 00:00:00"
+    ) %>%
+  ## End of partition time filtering
+  group_by(flag) %>%
+  summarise(total_fishing_hours = sum(fishing_hours, na.rm=TRUE)) %>%
+  arrange(desc(total_fishing_hours)) %>%
+  collect()
+```
+
+```{r}
+## Define the desired bin resolution in degrees
+resolution = 1
+
+globe =
+  effort %>%
+  filter(
+    `_PARTITIONTIME` >= "2016-01-01 00:00:00",
+    `_PARTITIONTIME` <= "2016-12-31 00:00:00"
+    ) %>%
+  filter(fishing_hours > 0) %>%
+  mutate(
+    lat_bin = lat_bin/100,
+    lon_bin = lon_bin/100
+    ) %>%
+  mutate(
+    lat_bin_center = floor(lat_bin/resolution)*resolution + 0.5*resolution,
+    lon_bin_center = floor(lon_bin/resolution)*resolution + 0.5*resolution
+    ) %>%
+  group_by(lat_bin_center, lon_bin_center) %>%
+  summarise(fishing_hours = sum(fishing_hours, na.rm=TRUE)) %>%
+  collect()
+```
+
+```{r}
+globe %>%
+  filter(fishing_hours > 1) %>%
+  ggplot() +
+  geom_tile(aes(x=lon_bin_center, y=lat_bin_center, fill=fishing_hours))+
+  scale_fill_viridis_c(
+    name = "Fishing hours (log scale)",
+    trans = "log",
+    breaks = scales::log_breaks(n = 5, base = 10),
+    labels = scales::comma
+    ) +
+  labs(
+    title = "Global fishing effort in 2016",
+    subtitle = paste0("Effort binned at the ", resolution, "° level."),
+    y = NULL, x = NULL,
+    caption = "Data from Global Fishing Watch"
+    ) +
+  theme_ipsum(grid=FALSE) +
+  theme(axis.text=element_blank())
+```
+
+
