@@ -3,26 +3,99 @@ title: "GCE"
 output: pdf_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+## Load/install packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(future.apply, tictoc, data.table, usethis)
+pacman::p_install(googleComputeEngineR, force = FALSE) 
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+```{r}
+## Open your .Renviron file
+usethis::edit_r_environ()
 ```
 
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+## Refresh your .Renviron file for the current session.
+readRenviron("~/.Renviron") 
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+library(googleComputeEngineR)
+```
+
+
+```{r}
+# library(googleComputeEngineR) ## Already loaded
+
+## Create a new VM
+vm = 
+  gce_vm(
+    name = "new-vm",                           ## Name of the VM,
+    predefined_type = "n1-standard-4",         ## VM type
+    template = "rstudio",                      ## Template based on rocker/rstudio docker image
+    username = "oprah", password = "oprah1234" ## Username and password for RStudio login
+    )
+
+```
+
+```{r}
+## Check the VM data (including default settings that we didn't specify)
+vm
+```
+
+
+```{r}
+gce_vm_stop("new-vm")    ## Stop the VM
+```
+
+```{r}
+## Emulate slow function
+slow_func = 
+  function(x = 1) {
+    x_sq = x^2 
+    d = data.frame(value=x, value_squared=x_sq)
+    Sys.sleep(5)
+    return(d)
+    }
+```
+
+
+```{r}
+vms = 
+  gce_vm_cluster(
+    vm_prefix = "simple-cluster",   ## All VMs in our cluster will have this prefix
+    cluster_size = 3,               ## How many VMs in our cluster?
+    docker_image = "rocker/r-base", ## Default is rocker/r-parallel
+    predefined_type = "g1-small"    ## Cheap preemptible machine
+    )
+```
+
+
+```{r}
+plan(cluster, workers = as.cluster(vms)) 
+
+tic()
+future_cluster = future_lapply(1:15, slow_func)
+toc()
+```
+
+
+```{r}
+## Shut down instances when finished
+gce_vm_stop(vms)
+```
+
+
+```{r}
+gce_vm_delete(vms)
+```
+
+
+
+
+
+
