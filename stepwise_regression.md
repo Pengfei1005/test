@@ -127,8 +127,7 @@ tidy(stepwise)
 ```
 
 The optimal equation we get from stepwise selection is 
-$$mpg = 38.752 - 3.167*wt - 0.942*cyl - 0.018*hyp
-$$
+$mpg = 38.752 - 3.167*wt - 0.942*cyl - 0.018*hyp$
 
 
 ### Forward Selection And Backward Selection
